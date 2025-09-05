@@ -1,0 +1,199 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Ücretsiz Forex Lot Hesaplama Aracı - Hızlı ve güvenilir risk yönetimi.">
+    <title>Forex Lot Hesaplama</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .input-focus {
+            transition: all 0.3s ease;
+        }
+        .input-focus:focus {
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+        }
+        .result-slide {
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+        .result-slide.hidden {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        .icon-hover {
+            transition: transform 0.2s ease;
+        }
+        .icon-hover:hover {
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex items-center justify-center min-h-screen p-4">
+    <div class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-xl w-full max-w-lg border border-gray-700">
+        <h1 class="text-2xl sm:text-3xl font-bold text-center text-blue-300 mb-6 flex items-center justify-center">
+            <i class="fas fa-chart-line mr-2 icon-hover"></i> Forex Lot Hesaplama
+        </h1>
+        <div class="space-y-5">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Hesap Bakiyesi ($)</label>
+                <input id="bakiye" type="number" step="any" class="input-focus block w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 placeholder-gray-500" placeholder="Örn. 1000" oninput="debouncedCalculate()">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Risk Yüzdesi (%)</label>
+                <input id="risk_yuzde" type="number" step="any" class="input-focus block w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 placeholder-gray-500" placeholder="Örn. 1" oninput="debouncedCalculate()">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Parite Fiyatı</label>
+                <input id="fiyat" type="number" step="any" class="input-focus block w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 placeholder-gray-500" placeholder="Örn. 1.0850" oninput="debouncedCalculate()">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Stop Mesafesi Yüzdesi (%)</label>
+                <input id="stop_yuzde" type="number" step="any" class="input-focus block w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 placeholder-gray-500" placeholder="Örn. 0.5" oninput="debouncedCalculate()">
+            </div>
+            <div class="flex space-x-2">
+                <button onclick="calculateLot(true)" class="flex-1 bg-blue-600 text-white p-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors duration-300 flex items-center justify-center">
+                    <i class="fas fa-calculator mr-2"></i> Hesapla
+                </button>
+                <button onclick="resetForm()" class="flex-1 bg-gray-600 text-white p-3 rounded-lg font-semibold hover:bg-gray-700 transition-colors duration-300 flex items-center justify-center">
+                    <i class="fas fa-sync-alt mr-2"></i> Sıfırla
+                </button>
+            </div>
+            <div id="results" class="result-slide mt-5 hidden">
+                <p class="text-center text-lg font-semibold text-green-400">
+                    <i class="fas fa-check-circle mr-1"></i> Önerilen Lot: <span id="lot"></span>
+                </p>
+                <p class="text-center text-sm text-gray-400 mt-2">Risk Tutarı: <span id="risk_tutari"></span> $</p>
+                <p class="text-center text-sm text-gray-400">Stop Mesafesi (Pip): <span id="stop_pip"></span></p>
+            </div>
+            <p id="error" class="text-center text-sm text-red-400 mt-3 hidden"></p>
+        </div>
+    </div>
+
+    <script>
+        let debounceTimer;
+        function debouncedCalculate() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => calculateLot(false), 300);
+        }
+
+        function resetForm() {
+            document.getElementById('bakiye').value = '';
+            document.getElementById('risk_yuzde').value = '';
+            document.getElementById('fiyat').value = '';
+            document.getElementById('stop_yuzde').value = '';
+            document.getElementById('results').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+        }
+
+        async function loadPyodideAndRun() {
+            let pyodide = await loadPyodide();
+            await pyodide.runPythonAsync(`
+def lot_hesapla(bakiye, risk_yuzde, fiyat, stop_yuzde, pip_degeri=10):
+    risk_tutari = bakiye * (risk_yuzde / 100)
+    stop_mesafe = fiyat * (stop_yuzde / 100)
+    pip = 0.0001
+    stop_pip = stop_mesafe / pip
+    lot = risk_tutari / (stop_pip * pip_degeri)
+    return {
+        'lot': round(lot, 2),
+        'risk_tutari': round(risk_tutari, 2),
+        'stop_pip': round(stop_pip, 0)
+    }
+            `);
+            return pyodide;
+        }
+
+        let pyodidePromise = loadPyodideAndRun();
+
+        async function calculateLot(force = false) {
+            const bakiye = parseFloat(document.getElementById('bakiye').value);
+            const risk_yuzde = parseFloat(document.getElementById('risk_yuzde').value);
+            const fiyat = parseFloat(document.getElementById('fiyat').value);
+            const stop_yuzde = parseFloat(document.getElementById('stop_yuzde').value);
+            const resultsEl = document.getElementById('results');
+            const errorEl = document.getElementById('error');
+
+            errorEl.classList.add('hidden');
+            resultsEl.classList.add('hidden');
+
+            if (!force && (isNaN(bakiye) || isNaN(risk_yuzde) || isNaN(fiyat) || isNaN(stop_yuzde))) {
+                return;
+            }
+
+            if (isNaN(bakiye) || isNaN(risk_yuzde) || isNaN(fiyat) || isNaN(stop_yuzde)) {
+                errorEl.innerText = "Lütfen tüm alanları doldurun ve geçerli sayılar girin.";
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            if (bakiye <= 0 || risk_yuzde <= 0 || fiyat <= 0 || stop_yuzde <= 0) {
+                errorEl.innerText = "Değerler sıfırdan büyük olmalı.";
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                let pyodide = await pyodidePromise;
+                let result = await pyodide.runPythonAsync(`
+lot_hesapla(${bakiye}, ${risk_yuzde}, ${fiyat}, ${stop_yuzde})
+                `);
+                result = pyodide.toJs(result);
+
+                document.getElementById('lot').innerText = result.lot;
+                document.getElementById('risk_tutari').innerText = result.risk_tutari;
+                document.getElementById('stop_pip').innerText = result.stop_pip;
+                resultsEl.classList.remove('hidden');
+            } catch (error) {
+                errorEl.innerText = "Hesaplama hatası oluştu.";
+                errorEl.classList.remove('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
