@@ -1,199 +1,270 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!doctype html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Ücretsiz Forex Lot Hesaplama Aracı - Hızlı ve güvenilir risk yönetimi.">
-    <title>Forex Lot Hesaplama</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        .input-focus {
-            transition: all 0.3s ease;
-        }
-        .input-focus:focus {
-            border-color: #60a5fa;
-            box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
-        }
-        .result-slide {
-            transition: opacity 0.5s ease, transform 0.5s ease;
-        }
-        .result-slide.hidden {
-            opacity: 0;
-            transform: translateY(10px);
-        }
-        .icon-hover {
-            transition: transform 0.2s ease;
-        }
-        .icon-hover:hover {
-            transform: scale(1.1);
-        }
-    </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Kontrat / Pozisyon Büyüklüğü Hesaplayıcı</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#06b6d4;--muted:#94a3b8;--glass:rgba(255,255,255,0.03)}
+    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;margin:0;background:linear-gradient(180deg,#071028 0%, #041028 100%);color:#e6eef6;}
+    .wrap{max-width:980px;margin:32px auto;padding:24px;background:var(--card);border-radius:12px;box-shadow:0 10px 30px rgba(2,6,23,0.6)}
+    h1{margin:0 0 10px;font-size:20px}
+    p.lead{color:var(--muted);margin-top:0}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px}
+    .full{grid-column:1/-1}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    input[type=number],select,input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:var(--glass);color:inherit}
+    .row{display:flex;gap:8px}
+    button{background:var(--accent);color:#042;padding:10px 14px;border:none;border-radius:8px;cursor:pointer}
+    .result{margin-top:18px;padding:14px;border-radius:10px;background:linear-gradient(180deg, rgba(6,8,20,0.6), rgba(6,8,20,0.4));border:1px solid rgba(255,255,255,0.03)}
+    .muted{color:var(--muted);font-size:13px}
+    .small{font-size:13px}
+    .note{margin-top:10px;color:#c9d6e6}
+    code{background:rgba(255,255,255,0.03);padding:4px 6px;border-radius:6px}
+    @media (max-width:760px){.grid{grid-template-columns:1fr}}
+  </style>
 </head>
-<body class="bg-gray-900 text-gray-200 flex items-center justify-center min-h-screen p-4">
-    <div class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-xl w-full max-w-lg border border-gray-700">
-        <h1 class="text-2xl sm:text-3xl font-bold text-center text-blue-300 mb-6 flex items-center justify-center">
-            <i class="fas fa-chart-line mr-2 icon-hover"></i> Forex Lot Hesaplama
-        </h1>
-        <div class="space-y-5">
-            <div>
-                <label class="block text-sm font-medium text-gray-300 mb-1">Hesap Bakiyesi ($)</label>
-                <input id="bakiye" type="number" step="any" class="input-focus block w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 placeholder-gray-500" placeholder="Örn. 1000" oninput="debouncedCalculate()">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-300 mb-1">Risk Yüzdesi (%)</label>
-                <input id="risk_yuzde" type="number" step="any" class="input-focus block w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 placeholder-gray-500" placeholder="Örn. 1" oninput="debouncedCalculate()">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-300 mb-1">Parite Fiyatı</label>
-                <input id="fiyat" type="number" step="any" class="input-focus block w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 placeholder-gray-500" placeholder="Örn. 1.0850" oninput="debouncedCalculate()">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-300 mb-1">Stop Mesafesi Yüzdesi (%)</label>
-                <input id="stop_yuzde" type="number" step="any" class="input-focus block w-full p-3 border border-gray-600 rounded-lg bg-gray-700 text-gray-200 placeholder-gray-500" placeholder="Örn. 0.5" oninput="debouncedCalculate()">
-            </div>
-            <div class="flex space-x-2">
-                <button onclick="calculateLot(true)" class="flex-1 bg-blue-600 text-white p-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors duration-300 flex items-center justify-center">
-                    <i class="fas fa-calculator mr-2"></i> Hesapla
-                </button>
-                <button onclick="resetForm()" class="flex-1 bg-gray-600 text-white p-3 rounded-lg font-semibold hover:bg-gray-700 transition-colors duration-300 flex items-center justify-center">
-                    <i class="fas fa-sync-alt mr-2"></i> Sıfırla
-                </button>
-            </div>
-            <div id="results" class="result-slide mt-5 hidden">
-                <p class="text-center text-lg font-semibold text-green-400">
-                    <i class="fas fa-check-circle mr-1"></i> Önerilen Lot: <span id="lot"></span>
-                </p>
-                <p class="text-center text-sm text-gray-400 mt-2">Risk Tutarı: <span id="risk_tutari"></span> $</p>
-                <p class="text-center text-sm text-gray-400">Stop Mesafesi (Pip): <span id="stop_pip"></span></p>
-            </div>
-            <p id="error" class="text-center text-sm text-red-400 mt-3 hidden"></p>
+<body>
+  <main class="wrap">
+    <h1>Kontrat / Pozisyon Büyüklüğü Hesaplayıcı</h1>
+    <p class="lead">Forex (EUR/USD vb.) veya endeks/CFD (NASDAQ vb.) için pozisyon büyüklüğü hesaplar. Varsayılan değerler <strong>USD hesap</strong> içindir — farklı hesap para biriminiz varsa pip/tick değerini el ile güncelleyin.</p>
+
+    <div class="grid">
+      <div>
+        <label>Hesap Para Birimi</label>
+        <select id="accountCurrency">
+          <option>USD</option>
+          <option>EUR</option>
+          <option>TRY</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Hesap Bakiyesi (<span id="accCurLabel">USD</span>)</label>
+        <input id="accountBalance" type="number" inputmode="decimal" step="0.01" value="10000" />
+      </div>
+
+      <div>
+        <label>Risk (%) — hesap bakiyesine göre</label>
+        <input id="riskPercent" type="number" step="0.01" value="1" />
+      </div>
+
+      <div>
+        <label>Giriş Fiyatı (isteğe bağlı, sadece bilgi amaçlı)</label>
+        <input id="entryPrice" type="number" step="0.0001" placeholder="örn. 1.1200" />
+      </div>
+
+      <div>
+        <label>Stop Loss (pips/points)</label>
+        <input id="stopLoss" type="number" step="0.01" value="50" />
+      </div>
+
+      <div>
+        <label>Enstrüman Türü</label>
+        <select id="instrumentType">
+          <option value="forex">Forex (pip-based)</option>
+          <option value="index">Endeks / CFD (point/tick-based)</option>
+          <option value="custom">Özel (elle değer girin)</option>
+        </select>
+      </div>
+
+      <div id="forexBlock" class="full">
+        <label>Forex çifti (presetler, pip değeri otomatik doldurulur ama değiştirilebilir)</label>
+        <div class="row">
+          <select id="forexPair">
+            <option value="EURUSD">EUR/USD</option>
+            <option value="GBPUSD">GBP/USD</option>
+            <option value="USDJPY">USD/JPY</option>
+            <option value="EURGBP">EUR/GBP</option>
+          </select>
+          <input id="pipValue" type="number" step="0.0001" placeholder="Pip değeri (1 std lot için)" />
         </div>
+        <div class="muted small">Not: "Pip değeri" alanı 1 standart lot (100.000 birim) için pip/tick değeri içindir ve varsayılanlar <strong>USD hesabı</strong> içindir. Farklı hesap para birimleri veya broker sözleşme büyüklükleri için değeri el ile düzeltin.</div>
+      </div>
+
+      <div id="indexBlock" class="full" style="display:none;">
+        <label>Endeks / CFD (ör. NASDAQ) - preset</label>
+        <div class="row">
+          <select id="indexSelect">
+            <option value="NASDAQ">NASDAQ (US100) — varsayılan tick değer: 1</option>
+            <option value="SP500">S&P 500 (US500) — varsayılan tick değer: 1</option>
+            <option value="DOW">DOW (US30) — varsayılan tick değer: 1</option>
+          </select>
+          <input id="pointValue" type="number" step="0.0001" placeholder="Point değeri / kontrat (hesap para birimi)" />
+        </div>
+        <div class="muted small">Not: Endekslerde kontrat başına puan değeri brokera göre değişir. Buradaki varsayılanlar genel bir örnektir; kesin değer için broker sözleşmenize bakın.</div>
+      </div>
+
+      <div id="customBlock" class="full" style="display:none;">
+        <label>Özel: Kontrat / lot büyüklüğü ve pip/tick değeri</label>
+        <div class="grid">
+          <div>
+            <label>1 lot / kontrat kaç birim? (örn. Forex için 100000)</label>
+            <input id="lotSize" type="number" step="1" value="100000" />
+          </div>
+          <div>
+            <label>Pip / point değeri (1 standart lot için, hesap para birimi)</label>
+            <input id="customPipValue" type="number" step="0.0001" value="10" />
+          </div>
+        </div>
+      </div>
+
+      <div class="full">
+        <label>Kaldıraç (isteğe bağlı, sadece marj hesaplaması için)</label>
+        <input id="leverage" type="number" step="1" value="30" />
+      </div>
+
+      <div class="full row" style="justify-content:flex-end;margin-top:6px">
+        <button id="calcBtn">Hesapla</button>
+        <button id="resetBtn" style="background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted);">Sıfırla</button>
+      </div>
+
     </div>
 
-    <script>
-        let debounceTimer;
-        function debouncedCalculate() {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(() => calculateLot(false), 300);
-        }
+    <section class="result" id="resultBox" style="display:none">
+      <h2>Sonuçlar</h2>
+      <div id="results"></div>
+      <div class="note">Açıklama: Hesaplamalar girilen <strong>pip/point değeri</strong> ve <strong>lot/kontrat büyüklüğü</strong> baz alınarak yapılır. Broker sözleşme şartları farklılık gösterdiğinden özellikle NASDAQ, US30, US500 vb. için brokerinizin "contract specification" sayfasındaki değerleri kullanın.</div>
+      <div style="margin-top:10px"><button id="copyBtn">Sonuçları Kopyala</button></div>
+    </section>
+  </main>
 
-        function resetForm() {
-            document.getElementById('bakiye').value = '';
-            document.getElementById('risk_yuzde').value = '';
-            document.getElementById('fiyat').value = '';
-            document.getElementById('stop_yuzde').value = '';
-            document.getElementById('results').classList.add('hidden');
-            document.getElementById('error').classList.add('hidden');
-        }
+  <script>
+    // Elementler
+    const accountCurrency = document.getElementById('accountCurrency');
+    const accCurLabel = document.getElementById('accCurLabel');
+    const accountBalance = document.getElementById('accountBalance');
+    const riskPercent = document.getElementById('riskPercent');
+    const stopLoss = document.getElementById('stopLoss');
+    const instrumentType = document.getElementById('instrumentType');
+    const forexBlock = document.getElementById('forexBlock');
+    const indexBlock = document.getElementById('indexBlock');
+    const customBlock = document.getElementById('customBlock');
+    const forexPair = document.getElementById('forexPair');
+    const pipValue = document.getElementById('pipValue');
+    const indexSelect = document.getElementById('indexSelect');
+    const pointValue = document.getElementById('pointValue');
+    const lotSize = document.getElementById('lotSize');
+    const customPipValue = document.getElementById('customPipValue');
+    const calcBtn = document.getElementById('calcBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const resultBox = document.getElementById('resultBox');
+    const results = document.getElementById('results');
+    const copyBtn = document.getElementById('copyBtn');
+    const leverage = document.getElementById('leverage');
 
-        async function loadPyodideAndRun() {
-            let pyodide = await loadPyodide();
-            await pyodide.runPythonAsync(`
-def lot_hesapla(bakiye, risk_yuzde, fiyat, stop_yuzde, pip_degeri=10):
-    risk_tutari = bakiye * (risk_yuzde / 100)
-    stop_mesafe = fiyat * (stop_yuzde / 100)
-    pip = 0.0001
-    stop_pip = stop_mesafe / pip
-    lot = risk_tutari / (stop_pip * pip_degeri)
-    return {
-        'lot': round(lot, 2),
-        'risk_tutari': round(risk_tutari, 2),
-        'stop_pip': round(stop_pip, 0)
+    // Preset doldurmalar (varsayılanlar USD hesabı içindir)
+    function fillPipDefaults(){
+      const pair = forexPair.value;
+      if(pair === 'EURUSD' || pair === 'GBPUSD' || pair === 'EURGBP'){
+        pipValue.value = 10; // 1 standart lot için pip değeri yaklaşık 10 USD
+      } else if(pair === 'USDJPY'){
+        pipValue.value = 9.13; // yaklaşık değer (hesap USD sayılır)
+      } else {
+        pipValue.value = 10;
+      }
     }
-            `);
-            return pyodide;
-        }
 
-        let pyodidePromise = loadPyodideAndRun();
+    function fillIndexDefaults(){
+      const idx = indexSelect.value;
+      if(idx === 'NASDAQ'){
+        pointValue.value = 1; // broker'a göre değişir — genelde 1 USD/point örnek
+      } else if(idx === 'SP500'){
+        pointValue.value = 1;
+      } else if(idx === 'DOW'){
+        pointValue.value = 1;
+      }
+    }
 
-        async function calculateLot(force = false) {
-            const bakiye = parseFloat(document.getElementById('bakiye').value);
-            const risk_yuzde = parseFloat(document.getElementById('risk_yuzde').value);
-            const fiyat = parseFloat(document.getElementById('fiyat').value);
-            const stop_yuzde = parseFloat(document.getElementById('stop_yuzde').value);
-            const resultsEl = document.getElementById('results');
-            const errorEl = document.getElementById('error');
+    // Eventler
+    forexPair.addEventListener('change', fillPipDefaults);
+    indexSelect.addEventListener('change', fillIndexDefaults);
+    accountCurrency.addEventListener('change', ()=>{accCurLabel.textContent = accountCurrency.value});
 
-            errorEl.classList.add('hidden');
-            resultsEl.classList.add('hidden');
+    instrumentType.addEventListener('change', ()=>{
+      const t = instrumentType.value;
+      forexBlock.style.display = t === 'forex' ? 'block' : 'none';
+      indexBlock.style.display = t === 'index' ? 'block' : 'none';
+      customBlock.style.display = t === 'custom' ? 'block' : 'none';
+    });
 
-            if (!force && (isNaN(bakiye) || isNaN(risk_yuzde) || isNaN(fiyat) || isNaN(stop_yuzde))) {
-                return;
-            }
+    resetBtn.addEventListener('click', (e)=>{
+      e.preventDefault();
+      accountBalance.value = 10000; riskPercent.value = 1; stopLoss.value = 50; pipValue.value = 10; lotSize.value = 100000; customPipValue.value = 10; pointValue.value = 1; leverage.value = 30; entryPrice.value = '';
+      resultBox.style.display = 'none';
+    });
 
-            if (isNaN(bakiye) || isNaN(risk_yuzde) || isNaN(fiyat) || isNaN(stop_yuzde)) {
-                errorEl.innerText = "Lütfen tüm alanları doldurun ve geçerli sayılar girin.";
-                errorEl.classList.remove('hidden');
-                return;
-            }
+    // Hesaplama fonksiyonu
+    calcBtn.addEventListener('click', (e)=>{
+      e.preventDefault();
+      // Girdi doğrulama
+      const bal = parseFloat(accountBalance.value);
+      const riskP = parseFloat(riskPercent.value);
+      const sl = parseFloat(stopLoss.value);
+      if(isNaN(bal) || bal <= 0){ alert('Geçerli bir hesap bakiyesi girin'); return; }
+      if(isNaN(riskP) || riskP <= 0){ alert('Geçerli bir risk yüzdesi girin'); return; }
+      if(isNaN(sl) || sl <= 0){ alert('Geçerli bir stop loss değeri girin'); return; }
 
-            if (bakiye <= 0 || risk_yuzde <= 0 || fiyat <= 0 || stop_yuzde <= 0) {
-                errorEl.innerText = "Değerler sıfırdan büyük olmalı.";
-                errorEl.classList.remove('hidden');
-                return;
-            }
+      const riskAmount = bal * (riskP/100);
+      let lots = 0, units = 0, pipVal = 0, usedLotSize = 0, margin = null;
 
-            try {
-                let pyodide = await pyodidePromise;
-                let result = await pyodide.runPythonAsync(`
-lot_hesapla(${bakiye}, ${risk_yuzde}, ${fiyat}, ${stop_yuzde})
-                `);
-                result = pyodide.toJs(result);
+      if(instrumentType.value === 'forex'){
+        pipVal = parseFloat(pipValue.value);
+        if(isNaN(pipVal) || pipVal <= 0){ alert('Geçerli bir pip değeri girin'); return; }
+        usedLotSize = parseFloat(lotSize.value) || 100000;
+        // lot sayısı = risk / (stopLoss * pipValuePerLot)
+        lots = riskAmount / (sl * pipVal);
+        units = lots * usedLotSize;
+        // marj yaklaşık: (entryPrice * units) / leverage — entryPrice zorunlu değil
+        const ep = parseFloat(document.getElementById('entryPrice').value);
+        if(!isNaN(ep) && ep > 0){ margin = (ep * units) / (parseFloat(leverage.value)||1); }
 
-                document.getElementById('lot').innerText = result.lot;
-                document.getElementById('risk_tutari').innerText = result.risk_tutari;
-                document.getElementById('stop_pip').innerText = result.stop_pip;
-                resultsEl.classList.remove('hidden');
-            } catch (error) {
-                errorEl.innerText = "Hesaplama hatası oluştu.";
-                errorEl.classList.remove('hidden');
-            }
-        }
-    </script>
+      } else if(instrumentType.value === 'index'){
+        pipVal = parseFloat(pointValue.value);
+        if(isNaN(pipVal) || pipVal <= 0){ alert('Geçerli bir point değeri girin'); return; }
+        // index kontratları genelde 1 kontrat başına x USD/point. Burada "lot" yerine kontrat sayısı hesaplanır.
+        const contracts = riskAmount / (sl * pipVal);
+        lots = contracts; // semantik olarak kontrat sayısı
+        units = contracts; // kontrat sayısı
+        const ep = parseFloat(document.getElementById('entryPrice').value);
+        if(!isNaN(ep) && ep > 0){ margin = (ep * contracts) / (parseFloat(leverage.value)||1); }
+
+      } else {
+        // custom
+        pipVal = parseFloat(customPipValue.value);
+        usedLotSize = parseFloat(lotSize.value) || 1;
+        if(isNaN(pipVal) || pipVal <= 0){ alert('Geçerli bir pip/point değeri girin (custom)'); return; }
+        const l = riskAmount / (sl * pipVal);
+        lots = l;
+        units = l * usedLotSize;
+        const ep = parseFloat(document.getElementById('entryPrice').value);
+        if(!isNaN(ep) && ep > 0){ margin = (ep * units) / (parseFloat(leverage.value)||1); }
+      }
+
+      // Yuvarlama ve gösterim
+      const displayLots = Number.isFinite(lots) ? Math.max(0, lots) : 0;
+      const displayUnits = Number.isFinite(units) ? Math.max(0, units) : 0;
+
+      resultBox.style.display = 'block';
+      results.innerHTML = `
+        <p><strong>Risk Tutarı:</strong> ${riskAmount.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${accountCurrency.value}</p>
+        <p><strong>Önerilen Pozisyon (lot / kontrat):</strong> ${displayLots.toFixed(4)}</p>
+        <p><strong>Birimsel Büyüklük (adet / kontrat sayısı):</strong> ${displayUnits.toLocaleString(undefined,{maximumFractionDigits:2})}</p>
+        <p class="muted">Kullanılan pip/point değeri (1 standart lot/kontrat için): ${pipVal} ${accountCurrency.value}</p>
+        ${margin !== null ? `<p><strong>Yaklaşık Gerekli Marj:</strong> ${margin.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${accountCurrency.value} (kaldıraç ${leverage.value}:1 ile)</p>` : ''}
+      `;
+    });
+
+    copyBtn.addEventListener('click', ()=>{
+      const text = results.innerText || results.textContent;
+      navigator.clipboard.writeText(text).then(()=>{
+        copyBtn.textContent = 'Kopyalandı!';
+        setTimeout(()=>copyBtn.textContent='Sonuçları Kopyala',900);
+      }).catch(()=>{ alert('Kopyalama başarısız'); });
+    });
+
+    // İlk varsayılan doldurma
+    fillPipDefaults(); fillIndexDefaults();
+  </script>
 </body>
 </html>
